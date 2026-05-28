@@ -68,3 +68,25 @@ API documentation
 -----------------
 
 FastAPI provides interactive API docs (Swagger UI) at `http://<host>:<port>/docs` and ReDoc at `/redoc` when the server is running. The OpenAPI spec is served at `/openapi.json`.
+
+Authentication (access + refresh tokens)
+--------------------------------------
+
+The backend issues short-lived JWT access tokens and long-lived refresh tokens. The auth endpoints are:
+
+- `POST /token` — exchange username & password for an access token and a refresh token. Returns standard OAuth2-like JSON:
+
+```json
+{
+  "access_token": "...",
+  "token_type": "bearer",
+  "expires_in": 900,
+  "refresh_token": "..."
+}
+```
+
+- `POST /token/refresh` — send `{"refresh_token": "..."}` to obtain a new access token and a rotated refresh token.
+
+- `POST /token/revoke` — send `{"refresh_token": "..."}` to revoke a refresh token.
+
+Store refresh tokens in a secure platform storage on mobile (Keychain / EncryptedSharedPreferences). Access tokens may be kept in memory and renewed using the refresh token.
