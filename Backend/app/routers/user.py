@@ -12,7 +12,7 @@ from app.utils.response import success
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
-from app.models.token import Token, TokenData
+from app.models.token import TokenData
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120
 @router.post("/token",  tags=["user"])
 async def login_for_access_token(response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
-) -> Token:
+) -> dict:
     user = UserService.authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
