@@ -12,7 +12,7 @@ class AssessmentSchema(BaseModel):
         json_schema_extra = {
             "example": {
                 "digits": "AC4921CB",
-                "result": "OK \ Canceled",
+                "result": "OK \\ Canceled",
                 "comment": "Any",
                 "location": "Kyiv",
                 "direction": 'Lviv'

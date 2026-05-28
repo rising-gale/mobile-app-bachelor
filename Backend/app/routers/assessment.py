@@ -16,8 +16,8 @@ router = APIRouter()
 #dependencies=[Depends(JWTBearer())],
 
 @router.post('/assessment/check_number', tags=['assessment'])
-async def check_NumberPlate(image: UploadFile = File(...)):
-    return AssessmentService.checkNumber(image.file)
+def check_NumberPlate(image: UploadFile = File(...)):
+    return AssessmentService.checkNumber(image)
 
 @router.post('/assessment/save_number_info', tags=['assessment'])
 async def save_NumberPlate(number_info: NumberInfoSchema):
@@ -55,7 +55,7 @@ def delete_assessment_by_id(assessment_id):
 @router.post('/assessment/save_image', tags=['assessment'])
 async def saveImage(assessment_id: str, image: UploadFile = File(...)):
     print(assessment_id, image.filename)
-    file_location = f"server/media/{image.filename}"
+    file_location = f"media/{image.filename}"
     with open(file_location, "wb+") as file_object:
         shutil.copyfileobj(image.file, file_object)
     AssessmentService.save_image_to_assessment(assessment_id, image.filename)    

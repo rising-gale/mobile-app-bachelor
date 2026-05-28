@@ -2,8 +2,6 @@ from fastapi import APIRouter, Depends, Body, Security, Response, HTTPException,
 from fastapi.responses import FileResponse
 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 # from app.auth.auth_bearer import JWTBearer
 # from app.auth.auth_handler import signJWT
@@ -12,7 +10,6 @@ from app.services import user as UserService
 # from app.auth.auth_handler import decodeJWT
 
 from datetime import datetime, timedelta, timezone
-from decouple import config
 from typing import Annotated
 from app.models.token import Token, TokenData
 

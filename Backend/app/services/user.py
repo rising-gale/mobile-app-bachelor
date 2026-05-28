@@ -1,53 +1,40 @@
+import os
+import bcrypt  # <-- Меняем passlib на чистый bcrypt
 from app.database import database
-import hashlib
-# from app.auth.auth_handler import signJWT
 
-from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
-from decouple import config
 from jose import JWTError, jwt
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from app.models.token import Token, TokenData
 from app.models.user import UserSchema, UserLoginSchema
 
 from bson import ObjectId
-
-# from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
-
 from pathlib import Path
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-SECRET_KEY = '09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7'
-ALGORITHM = 'HS256'
-CONFIRM_TOKEN_EXPIRE_DAYS = 30
-
 import smtplib
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader
 
-# SCOPES = [
-#         "https://www.googleapis.com/auth/gmail.send"
-#     ]
-# flow = InstalledAppFlow.from_client_secrets_file(Path.cwd() / 'server/credentials.json', SCOPES)
-# creds = flow.run_local_server(port=0)
+# Убираем CryptContext, вместо него работаем с bcrypt напрямую
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+SECRET_KEY = os.environ.get("SECRET_KEY", '09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7')
+ALGORITHM = os.environ.get("ALGORITHM", 'HS256')
+CONFIRM_TOKEN_EXPIRE_DAYS = int(os.environ.get("CONFIRM_TOKEN_EXPIRE_DAYS", 30))
+CONFIRMATION_LINK = os.environ.get("CONFIRMATION_LINK", "http://localhost:8080/user/confirm/") # <-- Добавили получение ссылки
 
 def send_email(send_to: str, token: str):
-    sender_email = "maksim.monor@gmail.com"
-    sender_password = "ouqi pxrm ispk lfvb"
+    sender_email = os.environ.get("SENDER_EMAIL")
+    sender_password = os.environ.get("SENDER_PASS")
     recipient_email = send_to
-    env = Environment(loader=FileSystemLoader(Path.cwd() / 'server/templates'))
+    env = Environment(loader=FileSystemLoader(Path.cwd() / 'templates'))
     template = env.get_template('email.html')
     context = {
         'subject': 'Підтвердження пошти'    
-        }
-    confirmation_link = 'http://192.168.0.107:8080/user/confirm/' + token
+    }
+    confirmation_link = CONFIRMATION_LINK + token 
     html = template.render(confirmation_link=confirmation_link)
-    # print(html)
     html_message = MIMEText(html, 'html')
     html_message['Subject'] = context['subject']
     html_message['From'] = sender_email
@@ -57,11 +44,12 @@ def send_email(send_to: str, token: str):
         server.sendmail(sender_email, recipient_email, html_message.as_string())
     return({'message': 'Підтвердіть свою пошту.'})
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# Новые чистые функции хэширования (совместимы со старыми хэшами в БД)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def get_user(username: str):
     collection = database["users"]

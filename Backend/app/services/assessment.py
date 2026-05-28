@@ -1,16 +1,44 @@
-# import os
-from nomeroff_net import pipeline
-from nomeroff_net.tools import unzip
+# Lazy-initialized nomeroff pipeline and unzip helper
+import os
 from datetime import datetime
 
+import tempfile
+
+import cv2
+import numpy as np
+import traceback  # <-- Добавь импорт в самый верх файла
+
 import pymongo
+from fastapi import HTTPException
 
 from .user import get_user
 from app.database import database
 
 from bson import ObjectId
 
-number_plate_detection_and_reading = pipeline("number_plate_detection_and_reading", image_loader="opencv")
+_nomeroff_pipeline = None
+_nomeroff_unzip = None
+
+def get_nomeroff_pipeline():
+    """Return a singleton nomeroff pipeline instance. Raises HTTPException on failure."""
+    global _nomeroff_pipeline
+    global _nomeroff_unzip
+    if _nomeroff_pipeline is None:
+        try:
+            from nomeroff_net import pipeline
+            from nomeroff_net.tools import unzip
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Required package 'nomeroff_net' is not installed or failed to import: {e}")
+
+        try:
+            # Allow overriding models directory via env var if needed
+            models_dir = os.environ.get('NOMEROFF_MODELS_DIR')
+            # The nomeroff pipeline constructor may accept different args; keep the original signature
+            _nomeroff_pipeline = pipeline("number_plate_detection_and_reading", image_loader="opencv")
+            _nomeroff_unzip = unzip
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize nomeroff pipeline: {e}")
+    return _nomeroff_pipeline, _nomeroff_unzip
 
 #Only info by number
 def getNumber(digits: str):
@@ -26,21 +54,55 @@ def getNumber(digits: str):
 def getNumberInfo(digits):
     return {'number_info': getNumber(digits), 'number_history': get_assessment_history_by_digits(digits)}
 
-#Gets number automatically from image, gets info by number from our DB if exist, gets history of assessments by this number
-def checkNumber(image):
-    print(image)
-    # os.startfile()
+# Gets number automatically from image, gets info by number from our DB if exist, gets history of assessments by this number
+def checkNumber(upload_file):
+    print(f"Принят файл: {upload_file.filename}")
+    # 1. Создаем временный файл на диске внутри контейнера.
+    # Используем delete=False, чтобы файл не удалился сразу при закрытии,
+    # так как нейросети нужно будет открыть его по этому пути заново.
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    temp_path = temp_file.name
+
     try:
-        (images, images_bboxs, images_points, images_zones, region_ids, region_names, count_lines, confidences, texts) = unzip(number_plate_detection_and_reading([image]))
+        # 2. Считываем байты из запроса и записываем во временный файл
+        file_bytes = upload_file.file.read()
+        temp_file.write(file_bytes)
+        temp_file.close()  # Закрываем дескриптор, чтобы освободить файл для OpenCV
+
+        # 3. Инициализируем пайплайн
+        pipeline, unzip = get_nomeroff_pipeline()
+        
+        # 4. Передаем ПУТЬ к временному файлу (temp_path) вместо матрицы
+        res = pipeline([temp_path])
+        (images, images_bboxs, images_points, images_zones, region_ids, region_names, count_lines, confidences, texts) = unzip(res)
+    except HTTPException:
+        raise
     except Exception as e:
-        print(e)
-    print(region_names[0])
-    if(region_names[0] and region_names[0][0] == 'eu_ua_1995'):
+        traceback.print_exc() 
+        raise HTTPException(status_code=500, detail=f"ANPR processing error: {e}")
+    finally:
+        # 5. Этот блок выполнится ВСЕГДА (и при успехе, и при ошибке).
+        # Гарантированно подчищаем за собой временный файл с диска контейнера.
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    # Validate results structure safely
+    try:
+        rn0 = region_names[0] if region_names else None
+    except Exception:
+        rn0 = None
+
+    if rn0 and rn0[0] == 'eu_ua_1995':
         return {'message': 'Номер зразка до 2004 року не підтримується.'}
-    if(texts[0]):
-        return {'number_info': getNumber(texts[0][0]), 'number_history': get_assessment_history_by_digits(texts[0][0])}
-    else: return {'message': 'Номер не знайдено на фотографії.'}
-    # return region_names[0], texts[0]
+
+    try:
+        if texts and texts[0]:
+            plate = texts[0][0]
+            return {'number_info': getNumber(plate), 'number_history': get_assessment_history_by_digits(plate)}
+        else:
+            return {'message': 'Номер не знайдено на фотографії.'}
+    except Exception as e:
+        traceback.print_exc()  # <-- И СЮДА: на случай, если упало при разборе текста
+        raise HTTPException(status_code=500, detail=f"Error processing recognition results: {e}")
 
 #Saves number info to out DB
 def saveNumberInfo(number_info):

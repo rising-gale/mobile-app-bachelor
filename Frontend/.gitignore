@@ -1,3 +1,37 @@
+# Frontend (Expo / React Native) .gitignore
+
+# Node modules
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+
+# iOS / Android builds
+ios/build/
+android/app/build/
+ios/Pods/
+
+# Bundler / build outputs
+web-build/
+dist/
+
+# Env files
+.env
+.env.*.local
+
+# Logs
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Misc
+/.expo
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
 # dependencies
@@ -29,7 +63,7 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+.env
 
 # typescript
 *.tsbuildinfo

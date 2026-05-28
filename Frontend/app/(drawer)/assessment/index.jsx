@@ -3,7 +3,7 @@ import { DrawerToggleButton } from "@react-navigation/drawer"
 import {StatusBar} from 'expo-status-bar'
 import React, { useRef } from 'react'
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ImageBackground, Image, _Image, SafeAreaView} from 'react-native'
-import {Camera} from 'expo-camera'
+import { Camera as CameraFunctions, CameraView } from 'expo-camera'
 import { router } from 'expo-router';
 import { useDispatch } from 'react-redux'
 import { checkNumber, setFormData } from '../../../src/redux/assessmentsSlice'
@@ -16,13 +16,13 @@ const TakePictureScreen = () => {
   const [startCamera, setStartCamera] = React.useState(false)
   const [previewVisible, setPreviewVisible] = React.useState(false)
   const [capturedImage, setCapturedImage] = React.useState(null)
-  const [cameraType, setCameraType] = React.useState(Camera.Constants.Type.back)
+  const [cameraType, setCameraType] = React.useState('back')
   const [flashMode, setFlashMode] = React.useState('off')
 
-  let camera = useRef(new Camera)
+  const cameraRef = useRef(null)
 
   const __startCamera = async () => {
-    const {status} = await Camera.requestCameraPermissionsAsync();
+    const {status} = await CameraFunctions.requestCameraPermissionsAsync();
     // console.log(status)
     if (status === 'granted') {
       setStartCamera(true)
@@ -32,8 +32,8 @@ const TakePictureScreen = () => {
   }
   
   const __takePicture = async () => {
-    const options = { quality: 0.5, base64: true, imageType: 'jpeg' };
-    const photo = await camera.takePictureAsync(options)
+    const options = { quality: 0.5, base64: true, imageType: 'jpg' };
+    const photo = await cameraRef.current.takePictureAsync(options)
     // console.log('pic')
     const formdata = new FormData();
 
@@ -96,10 +96,7 @@ const TakePictureScreen = () => {
           {previewVisible && capturedImage ? (
             <CameraPreview photo={capturedImage} savePhoto={__savePhoto} retakePicture={__retakePicture} />
           ) : (
-            <Camera type={cameraType} flashMode={flashMode} style={{flex: 1}}
-              ref={(r) => {
-                camera = r
-              }}>
+            <CameraView facing={cameraType} flash={flashMode} style={{flex: 1}} ref={cameraRef}>
               <View style={{ flex: 1,width: '100%',backgroundColor: 'transparent',flexDirection: 'row'}}>
                 <View style={{position: 'absolute',left: '0.1%',top: '3%', flexDirection: 'column', justifyContent: 'space-between', padding: 10, alignItems: 'center'}}>
                 <TouchableOpacity
@@ -119,7 +116,7 @@ const TakePictureScreen = () => {
                   </View>
                 </View>
               </View>
-            </Camera>
+            </CameraView>
           )}
         </View>
       ) : (

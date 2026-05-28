@@ -153,8 +153,8 @@ const HomePage = () => {
               <Carousel
                 style={styles.carousel}
                 data={imagesProfile}
-                width={600}
-                height={500}
+                // width={600}
+                // height={500}
                 loop
                 autoPlay
                 autoPlayInterval={3000}
@@ -213,7 +213,8 @@ const styles = StyleSheet.create({
   },
   carousel: {
     // flex: 1,
-    // width: 300,
+    width: 400,
+    height: 500,
     marginBottom: 5,
   },
   imageContainer: {
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 10,
     overflow: 'hidden',
-    marginBottom: 15,
+    marginBottom: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -1,0 +1,38 @@
+# Root .gitignore for the mobile-app-bachelor repository
+
+# Node / Expo / React Native
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+package-lock.json
+pnpm-lock.yaml
+.expo/
+.expo-shared/
+web-build/
+android/app/build/
+ios/build/
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+*.log
+\.env
+Backend/.env
+Backend/.venv/
+Backend/venv/
+
+# IDE / editors
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Misc
+coverage/
+dist/
+build/

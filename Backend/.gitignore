@@ -1,5 +1,32 @@
-# .gitignore
+# Backend .gitignore
+
+# Keep model placeholder but ignore actual weights/cache
 models/*
 !models/.gitkeep
+
+# Byte-compiled / cache
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
 .env
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Database / local files
+*.sqlite3
+*.db
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
