@@ -12,9 +12,9 @@ export const getUserData = createAsyncThunk(
         // console.log('getuser');
         let authorization_header = await SecureStore.getItemAsync('access_token');
         // console.log(Aheader)
-        const { data } = await axios.get(assessmentsRouter.getMePath(), { headers:{Authorization: authorization_header} })
-        // console.log(data);
-        return (data)
+        const { data:responseUserData } = await axios.get(assessmentsRouter.getMePath(), { headers:{Authorization: authorization_header} })
+        console.log('responseUserData: ', responseUserData.data);
+        return (responseUserData.data)
       } catch (error) {
         console.log(error)
         return ({ message: error.response.message })
@@ -30,13 +30,13 @@ export const login = createAsyncThunk(
         let formdata = new FormData();
         formdata.append("username", username)
         formdata.append("password", password)
-        console.log(formdata);
-        const {data} = await axios.post(assessmentsRouter.loginPath(), formdata, {
+        // console.log(formdata);
+        const { data } = await axios.post(assessmentsRouter.loginPath(), formdata, {
           headers: {
             "content-type": "multipart/form-data",
           },
         })
-        // console.log(data);
+        // console.log('Login data:', data);
         // await SecureStore.deleteItemAsync('access_token')
         await SecureStore.setItemAsync('access_token', 'Bearer ' + data.access_token);
         dispatch(getUserData())

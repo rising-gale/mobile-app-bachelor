@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from .user import get_user
 from app.database import get_database
+from app.models.response import MessageModel
 
 from bson import ObjectId
 
@@ -49,8 +50,10 @@ def getNumber(digits: str):
     )
     logger.debug("getNumber(%s) -> %s", digits, bool(number_info))
     if number_info is not None:
+        # return as plain dict matching NumberInfoOut
         return number_info
-    return {"message": "Number doesn't exist in our DB.", "digits": digits}
+    # not found -> return None to allow caller/router to set message
+    return None
 
 #Number info with history
 def getNumberInfo(digits):
@@ -101,7 +104,8 @@ def checkNumber(upload_file):
         if texts and texts[0]:
             plate = texts[0][0]
             return {"number_info": getNumber(plate), "number_history": get_assessment_history_by_digits(plate)}
-        return {"message": "Номер не знайдено на фотографії."}
+        # no plate recognized
+        return {"number_info": None, "number_history": []}
     except Exception as e:
         traceback.print_exc()
         logger.exception("Error processing recognition results")
@@ -112,7 +116,7 @@ def saveNumberInfo(number_info):
     collection = get_database()["numberplates"]
     result = collection.insert_one(number_info)
     logger.debug("Inserted number_info id=%s", getattr(result, 'inserted_id', None))
-    return {"message": "Success", "id": str(result.inserted_id)}
+    return {"id": str(result.inserted_id)}
 
 #Submits new Assessment
 def submitAssessment(assessment, username):
@@ -138,11 +142,21 @@ def get_assessment_history(username, pageNumber):
     collection = get_database()["assessments"]
     logger.debug("Fetching assessment history for user %s page %s", username, pageNumber)
     assessments_history = []
-    cursor = collection.find({"u_id": ObjectId(user_data["_id"])}, {"_id": {"$toString": "$_id"}, "digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
+    cursor = collection.find({"u_id": ObjectId(user_data["_id"])}, {"digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
         "date_time", pymongo.DESCENDING
     ).skip(10 * (pageNumber - 1)).limit(10)
     for document in cursor:
-        assessments_history.append(document)
+        doc = {
+            "id": str(document.get("_id")),
+            "digits": document.get("digits"),
+            "result": document.get("result"),
+            "comment": document.get("comment"),
+            "location": document.get("location"),
+            "direction": document.get("direction"),
+            "date_time": document.get("date_time"),
+            "image": document.get("image"),
+        }
+        assessments_history.append(doc)
     return assessments_history
 
 def get_page_count(username):
@@ -155,17 +169,52 @@ def get_page_count(username):
 def get_assessment_history_by_digits(digits):
     collection = get_database()["assessments"]
     assessments_history = []
-    cursor = collection.find({"digits": digits}, {"_id": {"$toString": "$_id"}, "digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
+    cursor = collection.find({"digits": digits}, {"digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
         "date_time", pymongo.DESCENDING
     ).limit(5)
     for document in cursor:
-        assessments_history.append(document)
+        doc = {
+            "id": str(document.get("_id")),
+            "digits": document.get("digits"),
+            "result": document.get("result"),
+            "comment": document.get("comment"),
+            "location": document.get("location"),
+            "direction": document.get("direction"),
+            "date_time": document.get("date_time"),
+            "image": document.get("image"),
+        }
+        assessments_history.append(doc)
     return assessments_history
 
 #Gets assessment by ID
 def get_assessment_by_id(assessment_id):
     collection = get_database()["assessments"]
-    return collection.find_one({"_id": ObjectId(assessment_id)}, {"_id": {"$toString": "$_id"}, "digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1})
+    document = collection.find_one({"_id": ObjectId(assessment_id)})
+    if not document:
+        return None
+    return {
+        "id": str(document.get("_id")),
+        "digits": document.get("digits"),
+        "result": document.get("result"),
+        "comment": document.get("comment"),
+        "location": document.get("location"),
+        "direction": document.get("direction"),
+        "date_time": document.get("date_time"),
+        "image": document.get("image"),
+    }
+
+def is_owner(assessment_id, username):
+    try:
+        user_data = get_user(username)
+        if not user_data:
+            return False
+        collection = get_database()["assessments"]
+        doc = collection.find_one({"_id": ObjectId(assessment_id)}, {"u_id": 1})
+        if not doc or "u_id" not in doc:
+            return False
+        return doc.get("u_id") == ObjectId(user_data["_id"])
+    except Exception:
+        return False
 
 #Saves image to server and sets it to assessment that is complete
 def save_image_to_assessment(assessment_id, filename):
@@ -173,11 +222,11 @@ def save_image_to_assessment(assessment_id, filename):
     collection = get_database()["assessments"]
     result = collection.update_one({"_id": ObjectId(assessment_id)}, {"$set": {"image": filename}})
     logger.debug("save_image_to_assessment updated: %s", result.modified_count)
-    return {"message": "Success"}
+    return MessageModel(message="Success")
 
 #Deletes assessment by ID
 def delete_assessment(assessment_id):
     collection = get_database()["assessments"]
     collection.delete_one({"_id": ObjectId(assessment_id)})
-    return {"message": "Success"}
+    return MessageModel(message="Success")
 

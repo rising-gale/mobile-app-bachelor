@@ -5,7 +5,9 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 # from app.auth.auth_bearer import JWTBearer
 # from app.auth.auth_handler import signJWT
-from app.models.user import UserSchema, UserLoginSchema
+from app.models.user import UserSchema, UserLoginSchema, UserPublic
+from app.models.token import RefreshTokenRequest, TokenResponse
+from app.models.response import ApiResponse, MessageModel
 from app.services import user as UserService
 from app.utils.response import success
 # from app.auth.auth_handler import decodeJWT
@@ -18,8 +20,8 @@ router = APIRouter()
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(__import__("os").environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 
-@router.post("/token",  tags=["user"])
-async def login_for_access_token(response: Response,
+@router.post("/token",  tags=["user"], response_model=ApiResponse[TokenResponse])
+def login_for_access_token(response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
     user = UserService.authenticate_user(form_data.username, form_data.password)
@@ -35,12 +37,12 @@ async def login_for_access_token(response: Response,
     )
     refresh_token = UserService.create_refresh_token(user['username'])
     expires_in = int(access_token_expires.total_seconds())
-    return {"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": refresh_token}
+    return ApiResponse(success=True, data={"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": refresh_token})
 
 
-@router.post("/token/refresh", tags=["user"])
-async def refresh_access_token(payload: dict = Body(...)):
-    refresh_token = payload.get("refresh_token")
+@router.post("/token/refresh", tags=["user"], response_model=ApiResponse[TokenResponse])
+def refresh_access_token(payload: RefreshTokenRequest = Body(...)):
+    refresh_token = payload.refresh_token
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="refresh_token required")
     # verify and rotate
@@ -49,40 +51,41 @@ async def refresh_access_token(payload: dict = Body(...)):
     access_token = UserService.create_access_token(data={"sub": username}, expires_delta=access_token_expires)
     new_refresh = UserService.rotate_refresh_token(refresh_token)
     expires_in = int(access_token_expires.total_seconds())
-    return {"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": new_refresh}
+    return ApiResponse(success=True, data={"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": new_refresh})
 
 
-@router.post("/token/revoke", tags=["user"])
-async def revoke_refresh(payload: dict = Body(...)):
-    refresh_token = payload.get("refresh_token")
+@router.post("/token/revoke", tags=["user"], response_model=ApiResponse[MessageModel])
+def revoke_refresh(payload: RefreshTokenRequest = Body(...)):
+    refresh_token = payload.refresh_token
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="refresh_token required")
     ok = UserService.revoke_refresh_token(refresh_token)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to revoke token")
-    return {"detail": "revoked"}
+    return ApiResponse(success=True, data={"message": "revoked"})
 
-@router.get("/user/me", tags=["user"])
-async def read_users_me(
-    current_user: Annotated[UserSchema, Depends(UserService.get_current_active_user)]
+@router.get("/user/me", tags=["user"], response_model=ApiResponse[UserPublic])
+def read_users_me(
+    current_user: Annotated[dict, Depends(UserService.get_current_active_user)]
 ):
-    return success(current_user)
+    public = UserService.user_to_public(current_user)
+    return ApiResponse(success=True, data=public)
 
-@router.post("/user/signup", tags=["user"])
+@router.post("/user/signup", tags=["user"], response_model=ApiResponse[MessageModel])
 def register_user(user: UserSchema = Body(...)):
-    return success(UserService.create_user(user)) 
+    return ApiResponse(success=True, data=UserService.create_user(user)) 
 
-@router.patch('/user/update', tags=["user"])
+@router.patch('/user/update', tags=["user"], response_model=ApiResponse[MessageModel])
 def update_user(user: UserSchema = Body(...)):
-    return success(UserService.update_current_user(user))
+    return ApiResponse(success=True, data=UserService.update_current_user(user))
 
-@router.get("/user/confirm/{token}", tags=["user"])
+@router.get("/user/confirm/{token}", tags=["user"], response_model=ApiResponse[MessageModel])
 def confirm_email(token):
-    return success(UserService.confirm_email(token))
+    return ApiResponse(success=True, data=UserService.confirm_email(token))
 
-@router.get('/user/send_email', tags=['user'])
+@router.get('/user/send_email', tags=['user'], response_model=ApiResponse[MessageModel])
 def send_email(send_to: str):
-    return success(UserService.send_email())
+    return ApiResponse(success=True, data=UserService.resend_confirmation_email(send_to))
 
 # @router.post('/user/refresh')
 # def refresh(Authorize: AuthJWT = Depends()):

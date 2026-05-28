@@ -31,3 +31,12 @@ class UserLoginSchema(BaseModel):
                 "password": "any"
             }
         }
+
+
+class UserPublic(BaseModel):
+    username: str
+    name: str
+    surname: str
+    email: EmailStr
+    workLocation: str | None = None
+    role: str | None = None
