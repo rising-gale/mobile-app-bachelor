@@ -2,6 +2,7 @@ import os
 import logging
 import bcrypt  # <-- Меняем passlib на чистый bcrypt
 from app.database import get_database
+import uuid
 
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
@@ -25,7 +26,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 SECRET_KEY = os.environ.get("SECRET_KEY", '09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7')
 ALGORITHM = os.environ.get("ALGORITHM", 'HS256')
 CONFIRM_TOKEN_EXPIRE_DAYS = int(os.environ.get("CONFIRM_TOKEN_EXPIRE_DAYS", 30))
-CONFIRMATION_LINK = os.environ.get("CONFIRMATION_LINK", "http://localhost:8080/user/confirm/") # <-- Добавили получение ссылки
+CONFIRMATION_LINK = os.environ.get("CONFIRMATION_LINK", "http://localhost:8080/user/confirm/")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", 30))
 
 def send_email(send_to: str, token: str):
     sender_email = os.environ.get("SENDER_EMAIL")
@@ -54,6 +57,75 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
+
+def _store_refresh_jti(username: str, jti: str, expires_at):
+    collection = get_database()["refresh_tokens"]
+    collection.insert_one({"jti": jti, "username": username, "expires_at": expires_at})
+
+
+def _delete_refresh_jti(jti: str):
+    collection = get_database()["refresh_tokens"]
+    collection.delete_one({"jti": jti})
+
+
+def create_refresh_token(username: str) -> str:
+    """Create a refresh JWT containing a unique jti and persist the jti in DB."""
+    jti = uuid.uuid4().hex
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {"sub": username, "jti": jti, "type": "refresh", "exp": expire}
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    _store_refresh_jti(username, jti, expire)
+    return token
+
+
+def verify_refresh_token(token: str) -> str:
+    """Verify refresh token signature and presence of jti in DB. Returns username if valid."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    jti = payload.get("jti")
+    username = payload.get("sub")
+    if not jti or not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
+    collection = get_database()["refresh_tokens"]
+    doc = collection.find_one({"jti": jti})
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked or unknown")
+    expires_at = doc.get("expires_at")
+    if expires_at and datetime.now(timezone.utc) > expires_at:
+        _delete_refresh_jti(jti)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    return username
+
+
+def rotate_refresh_token(old_token: str) -> str:
+    """Replace old refresh token with a new one (rotation). Returns new token."""
+    try:
+        payload = jwt.decode(old_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    jti_old = payload.get("jti")
+    username = payload.get("sub")
+    if not jti_old or not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
+    _delete_refresh_jti(jti_old)
+    return create_refresh_token(username)
+
+
+def revoke_refresh_token(token: str) -> bool:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return False
+    jti = payload.get("jti")
+    if not jti:
+        return False
+    _delete_refresh_jti(jti)
+    return True
+
 def get_user(username: str):
     collection = get_database()["users"]
     return collection.find_one({"username": username}, {"_id": {"$toString": "$_id"}, "email": 1, "name": 1, "surname": 1, "role": 1, "username": 1, "password": 1, "workLocation": 1})
@@ -71,7 +143,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt

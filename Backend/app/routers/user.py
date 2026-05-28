@@ -16,12 +16,12 @@ from app.models.token import TokenData
 
 router = APIRouter()
 
-ACCESS_TOKEN_EXPIRE_MINUTES = 120
+ACCESS_TOKEN_EXPIRE_MINUTES = int(__import__("os").environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 
 @router.post("/token",  tags=["user"])
 async def login_for_access_token(response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
-) -> dict:
+):
     user = UserService.authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -29,12 +29,38 @@ async def login_for_access_token(response: Response,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=UserService.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = UserService.create_access_token(
         data={"sub": user['username']}, expires_delta=access_token_expires
     )
-    # response.set_cookie('Authorization', access_token)
-    return success({"access_token": access_token, "token_type": "bearer"})
+    refresh_token = UserService.create_refresh_token(user['username'])
+    expires_in = int(access_token_expires.total_seconds())
+    return {"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": refresh_token}
+
+
+@router.post("/token/refresh", tags=["user"])
+async def refresh_access_token(payload: dict = Body(...)):
+    refresh_token = payload.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="refresh_token required")
+    # verify and rotate
+    username = UserService.verify_refresh_token(refresh_token)
+    access_token_expires = timedelta(minutes=UserService.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = UserService.create_access_token(data={"sub": username}, expires_delta=access_token_expires)
+    new_refresh = UserService.rotate_refresh_token(refresh_token)
+    expires_in = int(access_token_expires.total_seconds())
+    return {"access_token": access_token, "token_type": "bearer", "expires_in": expires_in, "refresh_token": new_refresh}
+
+
+@router.post("/token/revoke", tags=["user"])
+async def revoke_refresh(payload: dict = Body(...)):
+    refresh_token = payload.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="refresh_token required")
+    ok = UserService.revoke_refresh_token(refresh_token)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to revoke token")
+    return {"detail": "revoked"}
 
 @router.get("/user/me", tags=["user"])
 async def read_users_me(
