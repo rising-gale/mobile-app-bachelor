@@ -63,3 +63,8 @@ docker compose -f Backend/docker-compose.yml up --build
 
 Notes
 - The compose setup will read environment variables for the service; use `Backend/.env.example` as a template and **do not** commit your real `Backend/.env` file. If `Backend/.env` was previously committed, remove it from git tracking (`git rm --cached Backend/.env`) after adding it to `.gitignore`.
+
+API documentation
+-----------------
+
+FastAPI provides interactive API docs (Swagger UI) at `http://<host>:<port>/docs` and ReDoc at `/redoc` when the server is running. The OpenAPI spec is served at `/openapi.json`.

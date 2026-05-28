@@ -1,6 +1,7 @@
 import os
+import logging
 import bcrypt  # <-- Меняем passlib на чистый bcrypt
-from app.database import database
+from app.database import get_database
 
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
@@ -15,6 +16,8 @@ from pathlib import Path
 import smtplib
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader
+
+logger = logging.getLogger(__name__)
 
 # Убираем CryptContext, вместо него работаем с bcrypt напрямую
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -39,10 +42,10 @@ def send_email(send_to: str, token: str):
     html_message['Subject'] = context['subject']
     html_message['From'] = sender_email
     html_message['To'] = recipient_email
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, recipient_email, html_message.as_string())
-    return({'message': 'Підтвердіть свою пошту.'})
+    return {"message": "Підтвердіть свою пошту."}
 
 # Новые чистые функции хэширования (совместимы со старыми хэшами в БД)
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -52,9 +55,8 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def get_user(username: str):
-    collection = database["users"]
-    # print(collection.find_one({'username': username}, {"_id" : { "$toString": "$_id" }, 'email': 1, 'name': 1, 'surname': 1, 'role': 1, 'username': 1, 'password': 1}))
-    return collection.find_one({'username': username}, {"_id" : { "$toString": "$_id" }, 'email': 1, 'name': 1, 'surname': 1, 'role': 1, 'username': 1, 'password': 1, 'workLocation': 1})
+    collection = get_database()["users"]
+    return collection.find_one({"username": username}, {"_id": {"$toString": "$_id"}, "email": 1, "name": 1, "surname": 1, "role": 1, "username": 1, "password": 1, "workLocation": 1})
 
 def authenticate_user(username: str, password: str):
     user = get_user(username)
@@ -101,36 +103,43 @@ async def get_current_active_user(
     return current_user
 
 def insert_user(user):
-    collection = database["users"]
-    collection.insert_one({'email': user['email'], 'name': user['name'], 'surname': user['surname'], 'role': 'operator', 'isActive': True, 'username': user['username'], 'password': user['password'], 'workLocation': user['workLocation']})
-    return({'message': 'Registration complete, proceed to loggin in'})
+    collection = get_database()["users"]
+    collection.insert_one({
+        "email": user["email"],
+        "name": user["name"],
+        "surname": user["surname"],
+        "role": "operator",
+        "isActive": True,
+        "username": user["username"],
+        "password": user["password"],
+        "workLocation": user.get("workLocation"),
+    })
+    return {"message": "Registration complete, proceed to logging in"}
 
 def insert_token(user):
     access_token_expires = timedelta(days=CONFIRM_TOKEN_EXPIRE_DAYS)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    collection = database["confirm_tokens"]
+    collection = get_database()["confirm_tokens"]
     hashed = get_password_hash(user.password)
     collection.insert_one({'token':access_token,'email': user.email, 'name': user.name, 'surname': user.surname, 'username': user.username, 'password': hashed, 'workLocation': user.workLocation})
     return access_token
 
 def create_user(user):
-    if(get_user(user.username) == None):
-        collection = database["confirm_tokens"]
-        token_data = collection.find_one({'email': user.email})
-        if(token_data):
-            return({'message': 'User is already exist.'})
-        else:
-            token = insert_token(user)
+    if get_user(user.username) is None:
+        collection = get_database()["confirm_tokens"]
+        token_data = collection.find_one({"email": user.email})
+        if token_data:
+            return {"message": "User is already exist."}
+        token = insert_token(user)
         return send_email(user.email, token)
-    else:
-        return({'message': 'User is already exist.'})
+    return {"message": "User is already exist."}
 
 def update_current_user(user):
-    collection = database["users"]
-    if(get_user(user.username) != None):
-        collection.update_one({'username': user.username}, {"$set": {'email': user.email, 'name': user.name, 'surname': user.surname, 'workLocation': user.workLocation}})
+    collection = get_database()["users"]
+    if get_user(user.username) is not None:
+        collection.update_one({"username": user.username}, {"$set": {"email": user.email, "name": user.name, "surname": user.surname, "workLocation": user.workLocation}})
 
 def confirm_email(token):
     credentials_exception = HTTPException(
@@ -139,12 +148,12 @@ def confirm_email(token):
         headers={"WWW-Authenticate": "Bearer"},
     )
     # print('Token is: ', token)
-    collection = database["confirm_tokens"]
-    token_data = collection.find_one({'token': token})
+    collection = get_database()["confirm_tokens"]
+    token_data = collection.find_one({"token": token})
     # print('Token data is: ', token_data)
-    if(not token_data):
-        print('No token found in DB')
-        return({'message': 'Error in token'})
+    if not token_data:
+        logger.debug("No token found in DB for token")
+        return {"message": "Error in token"}
     else:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -153,8 +162,8 @@ def confirm_email(token):
                 collection.delete_one({'_id': token_data['_id']})
                 raise credentials_exception
             insert_user(token_data)
-            collection = database["confirm_tokens"]
-            collection.delete_one({'_id': token_data['_id']})
+            collection = get_database()["confirm_tokens"]
+            collection.delete_one({"_id": token_data["_id"]})
         except JWTError:
             raise credentials_exception
-        return({'message': 'Success'})
+        return {"message": "Success"}

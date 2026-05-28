@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 # from app.auth.auth_handler import signJWT
 from app.models.user import UserSchema, UserLoginSchema
 from app.services import user as UserService
+from app.utils.response import success
 # from app.auth.auth_handler import decodeJWT
 
 from datetime import datetime, timedelta, timezone
@@ -33,30 +34,29 @@ async def login_for_access_token(response: Response,
         data={"sub": user['username']}, expires_delta=access_token_expires
     )
     # response.set_cookie('Authorization', access_token)
-    return Token(access_token=access_token, token_type="bearer")
+    return success({"access_token": access_token, "token_type": "bearer"})
 
 @router.get("/user/me", tags=["user"])
 async def read_users_me(
     current_user: Annotated[UserSchema, Depends(UserService.get_current_active_user)]
 ):
-    return current_user
+    return success(current_user)
 
 @router.post("/user/signup", tags=["user"])
 def register_user(user: UserSchema = Body(...)):
-    # print(user)
-    return UserService.create_user(user) 
+    return success(UserService.create_user(user)) 
 
 @router.patch('/user/update', tags=["user"])
 def update_user(user: UserSchema = Body(...)):
-    return UserService.update_current_user(user)
+    return success(UserService.update_current_user(user))
 
 @router.get("/user/confirm/{token}", tags=["user"])
 def confirm_email(token):
-    return UserService.confirm_email(token)
+    return success(UserService.confirm_email(token))
 
 @router.get('/user/send_email', tags=['user'])
 def send_email(send_to: str):
-    return UserService.send_email()
+    return success(UserService.send_email())
 
 # @router.post('/user/refresh')
 # def refresh(Authorize: AuthJWT = Depends()):
