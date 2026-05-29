@@ -1,4 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr
+from datetime import datetime
+from typing import Optional
 
 class UserSchema(BaseModel):
     username: str = Field(...)
@@ -7,6 +9,8 @@ class UserSchema(BaseModel):
     email: EmailStr = Field(...)
     password: str = Field(...)
     workLocation: str = Field(...)
+    confirmed: bool = False
+    created_at: Optional[datetime] = None
     
     class Config:
         json_schema_extra = {
@@ -15,7 +19,7 @@ class UserSchema(BaseModel):
                 "name": "Joe",
                 "surname": "Millan",
                 "email": "joe@xyz.com",
-                "password": "any",
+                "password": "any_hashed",
                 "workLocation": "Lviv"
             }
         }
@@ -40,3 +44,11 @@ class UserPublic(BaseModel):
     email: EmailStr
     workLocation: str | None = None
     role: str | None = None
+
+
+class UsernameUpdate(BaseModel):
+    username: str = Field(...)
+
+
+class EmailUpdate(BaseModel):
+    email: EmailStr = Field(...)

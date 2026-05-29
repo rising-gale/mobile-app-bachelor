@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Body, Security, Response, HTTPException, status
-from fastapi.responses import FileResponse
+# from fastapi.responses import FileResponse
 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 # from app.auth.auth_bearer import JWTBearer
 # from app.auth.auth_handler import signJWT
-from app.models.user import UserSchema, UserLoginSchema, UserPublic
+from app.models.user import UserSchema, UserLoginSchema, UserPublic, UsernameUpdate, EmailUpdate
 from app.models.token import RefreshTokenRequest, TokenResponse
 from app.models.response import ApiResponse, MessageModel
 from app.services import user as UserService
@@ -87,30 +87,12 @@ def confirm_email(token):
 def send_email(send_to: str):
     return ApiResponse(success=True, data=UserService.resend_confirmation_email(send_to))
 
-# @router.post('/user/refresh')
-# def refresh(Authorize: AuthJWT = Depends()):
-#     Authorize.jwt_refresh_token_required()
 
-#     current_user = Authorize.get_jwt_subject()
-#     new_access_token = Authorize.create_access_token(subject=current_user)
-#     # Set the JWT and CSRF double submit cookies in the response
-#     Authorize.set_access_cookies(new_access_token)
-#     return {"msg":"The token has been refresh"}
+@router.patch('/user/username', tags=['user'], response_model=ApiResponse[MessageModel])
+def change_username(payload: UsernameUpdate = Body(...), current_user: Annotated[dict, Depends(UserService.get_current_active_user)] = Depends(UserService.get_current_active_user)):
+    return ApiResponse(success=True, data=UserService.update_username(current_user, payload.username))
 
-# @router.delete('/user/logout')
-# def logout(Authorize: AuthJWT = Depends()):
-#     """
-#     Because the JWT are stored in an httponly cookie now, we cannot
-#     log the user out by simply deleting the cookie in the frontend.
-#     We need the backend to send us a response to delete the cookies.
-#     """
-#     Authorize.jwt_required()
 
-#     Authorize.unset_jwt_cookies()
-#     return {"msg":"Successfully logout"}
-
-# @router.get("/user/me", tags=["user"])
-# def get_current_user_data(Authorize: AuthJWT = Depends()):
-#     Authorize.jwt_required()
-#     current_username = Authorize.get_jwt_subject()
-#     return UserService.check_user(decodeJWT(current_username)['username'])
+@router.patch('/user/email', tags=['user'], response_model=ApiResponse[MessageModel])
+def change_email(payload: EmailUpdate = Body(...), current_user: Annotated[dict, Depends(UserService.get_current_active_user)] = Depends(UserService.get_current_active_user)):
+    return ApiResponse(success=True, data=UserService.update_email(current_user, payload.email))

@@ -203,80 +203,73 @@ def get_current_active_user(
 
 def insert_user(user):
     collection = get_database()["users"]
-    collection.insert_one({
+    # Insert user record and return inserted id (string)
+    now = datetime.now(timezone.utc)
+    doc = {
         "email": user["email"],
         "name": user["name"],
         "surname": user["surname"],
-        "role": "operator",
+        "role": user.get("role", "operator"),
         "isActive": True,
         "username": user["username"],
         "password": user["password"],
         "workLocation": user.get("workLocation"),
-    })
-    return MessageModel(message="Registration complete, proceed to logging in")
-
-def insert_token(user):
-    access_token_expires = timedelta(days=CONFIRM_TOKEN_EXPIRE_DAYS)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    collection = get_database()["confirm_tokens"]
-    # ensure TTL index exists (idempotent)
-    try:
-        ttl_seconds = CONFIRM_TOKEN_TTL_HOURS * 3600
-        collection.create_index("created_at", expireAfterSeconds=ttl_seconds)
-    except Exception:
-        # if index creation fails for any reason, continue — TTL is best-effort
-        pass
-    hashed = get_password_hash(user.password)
-    now = datetime.now(timezone.utc)
-    doc = {
-        'token': access_token,
-        'email': user.email,
-        'name': user.name,
-        'surname': user.surname,
-        'username': user.username,
-        'password': hashed,
-        'workLocation': user.workLocation,
-        'created_at': now,
-        'expires_at': now + access_token_expires,
+        "confirmed": user.get("confirmed", False),
+        "created_at": user.get("created_at", now),
     }
-    collection.insert_one(doc)
-    return access_token
+    result = collection.insert_one(doc)
+    return str(result.inserted_id)
+
+def create_confirm_token(user_id: str) -> str:
+    """Create a signed confirmation token that encodes the user's id."""
+    access_token_expires = timedelta(days=CONFIRM_TOKEN_EXPIRE_DAYS)
+    token = create_access_token(data={"sub": str(user_id)}, expires_delta=access_token_expires)
+    return token
+
+
+def get_user_by_email(email: str):
+    collection = get_database()["users"]
+    doc = collection.find_one({"email": email})
+    if not doc:
+        return None
+    try:
+        doc["_id"] = str(doc.get("_id"))
+    except Exception:
+        pass
+    return doc
 
 
 def resend_confirmation_email(send_to: str):
-    """Send existing confirmation token to the given email if present."""
-    collection = get_database()["confirm_tokens"]
-    token_data = collection.find_one({"email": send_to})
-    if not token_data:
-        return MessageModel(message="No pending confirmation found for this email.")
-    token = token_data.get("token")
-    if not token:
-        return MessageModel(message="No token available to send.")
+    """Send a fresh confirmation token to the given user's email."""
+    user = get_user_by_email(send_to)
+    if not user:
+        return MessageModel(message="No user found with this email.")
+    if user.get("confirmed"):
+        return MessageModel(message="Email already confirmed.")
+    token = create_confirm_token(user.get("_id"))
     return send_email(send_to, token)
 
-def create_user(user):
-    if get_user(user.username) is None:
-        collection = get_database()["confirm_tokens"]
-        # check any pending confirm by email or username
-        token_data = collection.find_one({"$or": [{"email": user.email}, {"username": user.username}]})
-        if token_data:
-            token_str = token_data.get("token")
-            if token_str:
-                try:
-                    # If token still valid, refuse duplicate registration
-                    jwt.decode(token_str, SECRET_KEY, algorithms=[ALGORITHM])
-                    return MessageModel(message="User already exists.")
-                except ExpiredSignatureError:
-                    # token expired -> allow overwriting the pending record
-                    collection.delete_one({"_id": token_data["_id"]})
-                except JWTError:
-                    # invalid token -> remove and allow re-send
-                    collection.delete_one({"_id": token_data["_id"]})
-        token = insert_token(user)
-        return send_email(user.email, token)
-    return MessageModel(message="User already exists.")
+def create_user(user: UserSchema):
+    # refuse if username or email already exists
+    if get_user(user.username) is not None or get_user_by_email(user.email) is not None:
+        return MessageModel(message="User already exists.")
+    hashed = get_password_hash(user.password)
+    now = datetime.now(timezone.utc)
+    user_doc = {
+        "email": user.email,
+        "name": user.name,
+        "surname": user.surname,
+        "role": "operator",
+        "isActive": True,
+        "username": user.username,
+        "password": hashed,
+        "workLocation": user.workLocation,
+        "confirmed": False,
+        "created_at": now,
+    }
+    inserted_id = insert_user(user_doc)
+    token = create_confirm_token(inserted_id)
+    return send_email(user.email, token)
 
 def update_current_user(user):
     collection = get_database()["users"]
@@ -284,44 +277,51 @@ def update_current_user(user):
         collection.update_one({"username": user.username}, {"$set": {"email": user.email, "name": user.name, "surname": user.surname, "workLocation": user.workLocation}})
     return MessageModel(message="Success")
 
-def confirm_email(token):
+def confirm_email(token: str):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    # print('Token is: ', token)
-    collection = get_database()["confirm_tokens"]
-    token_data = collection.find_one({"token": token})
-    # print('Token data is: ', token_data)
-    if not token_data:
-        logger.debug("No token found in DB for token")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except ExpiredSignatureError:
+        return MessageModel(message="Confirmation token expired. Please request a new confirmation email.")
+    except JWTError:
+        raise credentials_exception
+    user_id = payload.get("sub")
+    if not user_id:
         return MessageModel(message="Error in token")
-    else:
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username: str = payload.get("sub")
-            if username is None:
-                collection.delete_one({'_id': token_data['_id']})
-                raise credentials_exception
-            # avoid inserting original confirm_tokens _id into users collection
-            if get_user(username) is not None:
-                collection.delete_one({"_id": token_data["_id"]})
-                return MessageModel(message="User already exists.")
-            user_doc = {
-                'email': token_data.get('email'),
-                'name': token_data.get('name'),
-                'surname': token_data.get('surname'),
-                'username': token_data.get('username'),
-                'password': token_data.get('password'),
-                'workLocation': token_data.get('workLocation'),
-            }
-            insert_user(user_doc)
-            collection.delete_one({"_id": token_data["_id"]})
-        except ExpiredSignatureError:
-            # token expired -> remove pending record and ask user to re-register
-            collection.delete_one({"_id": token_data["_id"]})
-            return MessageModel(message="Confirmation token expired. Please register again to receive a new token.")
-        except JWTError:
-            raise credentials_exception
-        return MessageModel(message="Success")
+    collection = get_database()["users"]
+    try:
+        user_doc = collection.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        return MessageModel(message="Error in token")
+    if not user_doc:
+        return MessageModel(message="Error in token")
+    if user_doc.get("confirmed"):
+        return MessageModel(message="Already confirmed")
+    collection.update_one({"_id": ObjectId(user_id)}, {"$set": {"confirmed": True}})
+    return MessageModel(message="Success")
+
+
+def update_username(current_user: dict, new_username: str):
+    collection = get_database()["users"]
+    # ensure username not used by another account
+    existing = collection.find_one({"username": new_username, "_id": {"$ne": ObjectId(current_user["_id"])}})
+    if existing:
+        return MessageModel(message="Username already taken")
+    collection.update_one({"_id": ObjectId(current_user["_id"])}, {"$set": {"username": new_username}})
+    return MessageModel(message="Username updated")
+
+
+def update_email(current_user: dict, new_email: str):
+    collection = get_database()["users"]
+    # ensure email not used by another account
+    existing = collection.find_one({"email": new_email, "_id": {"$ne": ObjectId(current_user["_id"])}})
+    if existing:
+        return MessageModel(message="Email already in use")
+    # set new email and mark unconfirmed
+    collection.update_one({"_id": ObjectId(current_user["_id"])}, {"$set": {"email": new_email, "confirmed": False}})
+    token = create_confirm_token(current_user["_id"])
+    return send_email(new_email, token)

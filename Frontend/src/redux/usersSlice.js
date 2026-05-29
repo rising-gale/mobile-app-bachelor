@@ -38,7 +38,7 @@ export const login = createAsyncThunk(
         })
         // console.log('Login data:', data);
         // await SecureStore.deleteItemAsync('access_token')
-        await SecureStore.setItemAsync('access_token', 'Bearer ' + data.access_token);
+        await SecureStore.setItemAsync('access_token', 'Bearer ' + data.data.access_token);
         dispatch(getUserData())
         return (data)
       } catch (error) {
