@@ -1,11 +1,13 @@
 import os
 import logging
 import uvicorn
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.openapi.utils import get_openapi
 
 from app.routers import assessment as AssessmentRouter
 from app.routers import user as UserRouter
@@ -28,6 +30,41 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+def custom_openapi():
+    # Если схема уже была сгенерирована ранее, возвращаем кэшированную версию
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    # Генерируем стандартную схему, автоматически подтягивая метаданные из app
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    # Конвертируем схему в строку для безопасной глобальной замены имён и $ref ссылок
+    schema_json = json.dumps(openapi_schema)
+
+    # Чистим уродливые пути Pydantic моделей, созданные из-за вложенности папок
+    # Добавь сюда свои пути, если структуры папок изменятся
+    schema_json = schema_json.replace("app.models.assessment.", "")
+    schema_json = schema_json.replace("app.models.user.", "")
+    schema_json = schema_json.replace("app.models.token.", "")
+    schema_json = schema_json.replace("app.models.response.", "")
+    
+    # Убираем двойные подчёркивания на концах генерик-моделей (например, __)
+    schema_json = schema_json.replace("__", "")
+
+    # Возвращаем изменённый JSON обратно в формат словаря
+    clean_openapi_schema = json.loads(schema_json)
+    
+    # Сохраняем в кэш приложения
+    app.openapi_schema = clean_openapi_schema
+    return app.openapi_schema
+
+# Назначаем нашу кастомную функцию стандартному методу FastAPI
+app.openapi = custom_openapi
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

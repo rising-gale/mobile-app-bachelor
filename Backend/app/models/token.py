@@ -9,7 +9,7 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 class RefreshTokenRequest(BaseModel):

@@ -21,8 +21,8 @@ class IdModel(BaseModel):
     id: str
 
 
-class AssessmentIdModel(BaseModel):
-    assessment_id: str
+# class AssessmentIdModel(BaseModel):
+#     assessment_id: str
 
 
 class PageCountModel(BaseModel):

@@ -1,22 +1,13 @@
+import "../global.css";
 import React from 'react'
-import {Provider} from 'react-redux'
-import {combineReducers, configureStore} from '@reduxjs/toolkit'
+import { Provider } from 'react-redux'
 import { Stack } from 'expo-router'
-
-import assessmentsSlice from '../src/redux/assessmentsSlice'
-import usersSlice from '../src/redux/usersSlice'
-
-const rootReducer = combineReducers({
-  assessment: assessmentsSlice,
-  user: usersSlice
-})
-
-const store = configureStore({reducer:rootReducer});
+import { store } from '../src/redux/store'
 
 const rootLayout = () => {
   return (
     <Provider store={store}>
-        <Stack screenOptions={{headerShown: false}}></Stack>
+      <Stack screenOptions={{ headerShown: false }} />
     </Provider>
   )
 }

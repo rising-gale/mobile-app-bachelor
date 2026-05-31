@@ -9,7 +9,7 @@ import traceback
 import pymongo
 from fastapi import HTTPException
 
-from .user import get_user
+from .user import get_user_by_id
 from app.database import get_database
 from app.models.response import MessageModel
 
@@ -61,18 +61,24 @@ def getNumberInfo(digits):
 
 # Gets number automatically from image, gets info by number from our DB if exist, gets history of assessments by this number
 def checkNumber(upload_file):
+    """
+    Принимает файл изображения, пропускает его через нейросеть Nomeroff Net
+    для распознавания автомобильного номера и ищет историю по базе данных.
+
+    :param image: Объект загруженного файла изображения от FastAPI.
+    :return: Объект NumberWithHistory, содержащий информацию о номере и историю проверок.
+    
+    :raises HTTPException(500): Если библиотека nomeroff_net не установлена или упал пайплайн.
+    :raises HTTPException(400): Если изображение повреждено или не может быть обработано OpenCV.
+    """
     logger.info("Received file: %s", getattr(upload_file, 'filename', '<unknown>'))
-    # 1. Создаем временный файл на диске внутри контейнера.
-    # Используем delete=False, чтобы файл не удалился сразу при закрытии,
-    # так как нейросети нужно будет открыть его по этому пути заново.
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
     temp_path = temp_file.name
 
     try:
-        # 2. Считываем байты из запроса и записываем во временный файл
         file_bytes = upload_file.file.read()
         temp_file.write(file_bytes)
-        temp_file.close()  # Закрываем дескриптор, чтобы освободить файл для OpenCV
+        temp_file.close()
 
         # 3. Инициализируем пайплайн
         pipeline, unzip = get_nomeroff_pipeline()
@@ -87,7 +93,6 @@ def checkNumber(upload_file):
         logger.exception("ANPR processing error")
         raise HTTPException(status_code=500, detail=f"ANPR processing error: {e}")
     finally:
-        # 5. Этот блок выполнится ВСЕГДА (и при успехе, и при ошибке).
         # Гарантированно подчищаем за собой временный файл с диска контейнера.
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -98,7 +103,7 @@ def checkNumber(upload_file):
         rn0 = None
 
     if rn0 and rn0[0] == 'eu_ua_1995':
-        return {"message": "Номер зразка до 2004 року не підтримується."}
+        return {"message": "This number is before 2004 and is not acceptable."}
 
     try:
         if texts and texts[0]:
@@ -119,30 +124,32 @@ def saveNumberInfo(number_info):
     return {"id": str(result.inserted_id)}
 
 #Submits new Assessment
-def submitAssessment(assessment, username):
-    user = get_user(username)
+def submitAssessment(assessment, user_id: str):
     collection = get_database()["assessments"]
+    # Ensure enum/result and CityChoice are serialized to plain types for MongoDB
+    location_val = assessment.location.dict() if hasattr(assessment.location, "dict") else assessment.location
+    direction_val = assessment.direction.dict() if hasattr(assessment.direction, "dict") else assessment.direction
+    result_val = assessment.result.value if hasattr(assessment.result, "value") else str(assessment.result)
     result = collection.insert_one(
         {
             "digits": assessment.digits,
-            "result": assessment.result,
+            "result": result_val,
             "comment": assessment.comment,
-            "location": assessment.location,
-            "direction": assessment.direction,
+            "location": location_val,
+            "direction": direction_val,
             "date_time": datetime.now(),
             "image": "",
-            "u_id": ObjectId(user["_id"]),
+            "u_id": ObjectId(user_id),
         }
     )
     return {"assessment_id": str(result.inserted_id)}
 
 #Gets assessments history of user by username
-def get_assessment_history(username, pageNumber):
-    user_data = get_user(username)
+def get_assessment_history(user_id: str, pageNumber: int):
     collection = get_database()["assessments"]
-    logger.debug("Fetching assessment history for user %s page %s", username, pageNumber)
+    logger.debug("Fetching assessment history for user %s page %s", user_id, pageNumber)
     assessments_history = []
-    cursor = collection.find({"u_id": ObjectId(user_data["_id"])}, {"digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
+    cursor = collection.find({"u_id": ObjectId(user_id)}, {"digits": 1, "result": 1, "comment": 1, "location": 1, "direction": 1, "date_time": 1, "image": 1}).sort(
         "date_time", pymongo.DESCENDING
     ).skip(10 * (pageNumber - 1)).limit(10)
     for document in cursor:
@@ -159,10 +166,9 @@ def get_assessment_history(username, pageNumber):
         assessments_history.append(doc)
     return assessments_history
 
-def get_page_count(username):
-    user_data = get_user(username)
+def get_page_count(user_id: str):
     collection = get_database()["assessments"]
-    count = collection.count_documents({"u_id": ObjectId(user_data["_id"])})
+    count = collection.count_documents({"u_id": ObjectId(user_id)})
     return (count + 9) // 10
 
 #Gets assessments history by numberplate
@@ -203,21 +209,18 @@ def get_assessment_by_id(assessment_id):
         "image": document.get("image"),
     }
 
-def is_owner(assessment_id, username):
+def is_owner(assessment_id, user_id: str) -> bool:
     try:
-        user_data = get_user(username)
-        if not user_data:
-            return False
         collection = get_database()["assessments"]
         doc = collection.find_one({"_id": ObjectId(assessment_id)}, {"u_id": 1})
         if not doc or "u_id" not in doc:
             return False
-        return doc.get("u_id") == ObjectId(user_data["_id"])
+        return doc.get("u_id") == ObjectId(user_id)
     except Exception:
         return False
 
 #Saves image to server and sets it to assessment that is complete
-def save_image_to_assessment(assessment_id, filename):
+def save_image_to_assessment(assessment_id, filename) -> MessageModel:
     # assessment_data = get_assessment_by_id(assessment_id)
     collection = get_database()["assessments"]
     result = collection.update_one({"_id": ObjectId(assessment_id)}, {"$set": {"image": filename}})
@@ -225,7 +228,7 @@ def save_image_to_assessment(assessment_id, filename):
     return MessageModel(message="Success")
 
 #Deletes assessment by ID
-def delete_assessment(assessment_id):
+def delete_assessment(assessment_id) -> MessageModel:
     collection = get_database()["assessments"]
     collection.delete_one({"_id": ObjectId(assessment_id)})
     return MessageModel(message="Success")

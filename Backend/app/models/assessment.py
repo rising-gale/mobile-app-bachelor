@@ -1,14 +1,22 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from enum import Enum
+from app.models.user import CityChoice
+
+
+class ResultEnum(str, Enum):
+    Ok = "Ok"
+    Denied = "Denied"
+    Problematic = "Problematic"
 
 
 class AssessmentSchema(BaseModel):
     digits: str = Field(...)
-    result: str = Field(...)
+    result: ResultEnum = Field(...)
     comment: str = Field(...)
-    location: str = Field(...)
-    direction: str = Field(...)
+    location: CityChoice = Field(...)
+    direction: CityChoice = Field(...)
     image: Optional[str] = Field(None)
 
     class Config:
@@ -33,8 +41,8 @@ class AssessmentOut(BaseModel):
     digits: Optional[str] = None
     result: Optional[str] = None
     comment: Optional[str] = None
-    location: Optional[str] = None
-    direction: Optional[str] = None
+    location: Optional[CityChoice] = None
+    direction: Optional[CityChoice] = None
     date_time: Optional[datetime] = None
     image: Optional[str] = None
 
@@ -46,7 +54,7 @@ class AssessmentSummary(AssessmentOut):
 class NumberInfoOut(BaseModel):
     digits: Optional[str] = None
     vin: Optional[str] = None
-    region: Optional[str] = None
+    region: object = None
     vendor: Optional[str] = None
     model: Optional[str] = None
     model_year: Optional[int] = None

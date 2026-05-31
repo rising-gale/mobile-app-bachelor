@@ -1,6 +1,6 @@
 import os
 import logging
-import bcrypt  # <-- Меняем passlib на чистый bcrypt
+import bcrypt
 from app.database import get_database
 import uuid
 
@@ -10,8 +10,8 @@ from jose.exceptions import ExpiredSignatureError
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from app.models.token import Token, TokenData
-from app.models.user import UserSchema, UserLoginSchema
+from app.models.token import Token
+from app.models.user import UserSchema, UserLoginSchema, UserUpdateFields, UserPublic
 from app.models.response import MessageModel
 
 from bson import ObjectId
@@ -33,14 +33,14 @@ CONFIRMATION_LINK = os.environ.get("CONFIRMATION_LINK", "http://localhost:8080/u
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", 30))
 
-def send_email(send_to: str, token: str):
+def send_email(send_to: str, token: str) -> MessageModel:
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASS")
     recipient_email = send_to
     env = Environment(loader=FileSystemLoader(Path.cwd() / 'templates'))
     template = env.get_template('email.html')
     context = {
-        'subject': 'Підтвердження пошти'    
+        'subject': 'Email confirmation'    
     }
     confirmation_link = CONFIRMATION_LINK + token 
     html = template.render(confirmation_link=confirmation_link)
@@ -51,7 +51,7 @@ def send_email(send_to: str, token: str):
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, recipient_email, html_message.as_string())
-    return MessageModel(message="Підтвердіть свою пошту.")
+    return MessageModel(message="Please check your E-Mail and confirm it.")
 
 # Новые чистые функции хэширования (совместимы со старыми хэшами в БД)
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -61,9 +61,9 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
-def _store_refresh_jti(username: str, jti: str, expires_at):
+def _store_refresh_jti(user_id: str, jti: str, expires_at):
     collection = get_database()["refresh_tokens"]
-    collection.insert_one({"jti": jti, "username": username, "expires_at": expires_at})
+    collection.insert_one({"jti": jti, "user_id": user_id, "expires_at": expires_at})
 
 
 def _delete_refresh_jti(jti: str):
@@ -71,18 +71,18 @@ def _delete_refresh_jti(jti: str):
     collection.delete_one({"jti": jti})
 
 
-def create_refresh_token(username: str) -> str:
+def create_refresh_token(user_id: str) -> str:
     """Create a refresh JWT containing a unique jti and persist the jti in DB."""
     jti = uuid.uuid4().hex
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    payload = {"sub": username, "jti": jti, "type": "refresh", "exp": expire}
+    payload = {"sub": user_id, "jti": jti, "type": "refresh", "exp": expire}
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    _store_refresh_jti(username, jti, expire)
+    _store_refresh_jti(user_id, jti, expire)
     return token
 
 
 def verify_refresh_token(token: str) -> str:
-    """Verify refresh token signature and presence of jti in DB. Returns username if valid."""
+    """Verify refresh token signature and presence of jti in DB. Returns user_id if valid."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
@@ -90,8 +90,8 @@ def verify_refresh_token(token: str) -> str:
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
     jti = payload.get("jti")
-    username = payload.get("sub")
-    if not jti or not username:
+    user_id = payload.get("sub")
+    if not jti or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
     collection = get_database()["refresh_tokens"]
     doc = collection.find_one({"jti": jti})
@@ -101,7 +101,7 @@ def verify_refresh_token(token: str) -> str:
     if expires_at and datetime.now(timezone.utc) > expires_at:
         _delete_refresh_jti(jti)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
-    return username
+    return user_id
 
 
 def rotate_refresh_token(old_token: str) -> str:
@@ -111,11 +111,11 @@ def rotate_refresh_token(old_token: str) -> str:
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     jti_old = payload.get("jti")
-    username = payload.get("sub")
-    if not jti_old or not username:
+    user_id = payload.get("sub")
+    if not jti_old or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload")
     _delete_refresh_jti(jti_old)
-    return create_refresh_token(username)
+    return create_refresh_token(user_id)
 
 
 def revoke_refresh_token(token: str) -> bool:
@@ -160,21 +160,22 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 
-def user_to_public(user: dict) -> dict | None:
-    """Return a public-facing representation of a user (no password)."""
+def user_to_public(user: dict) -> UserPublic | None:
+    """Return a public-facing `UserPublic` model for a DB user document."""
     if not user:
         return None
-    return {
-        "username": user.get("username"),
-        "name": user.get("name"),
-        "surname": user.get("surname"),
-        "email": user.get("email"),
-        "workLocation": user.get("workLocation"),
-        "role": user.get("role"),
-    }
+    return UserPublic(
+        id=user.get("_id"),
+        username=user.get("username"),
+        name=user.get("name"),
+        surname=user.get("surname"),
+        email=user.get("email"),
+        workLocation=user.get("workLocation"),
+        role=user.get("role"),
+    )
 
 
-def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserPublic:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -182,21 +183,40 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        user_id: str = payload.get("sub")
+        if user_id is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user(username=token_data.username)
+    user = None
+    try:
+        user = get_user_by_id(user_id)
+    except Exception:
+        user = None
     if user is None:
         raise credentials_exception
-    return user
+    public = user_to_public(user)
+    if public is None:
+        raise credentials_exception
+    return public
 
 
-def get_current_active_user(
-    current_user: Annotated[dict, Depends(get_current_user)]
-):
+def get_user_by_id(user_id: str):
+    collection = get_database()["users"]
+    try:
+        doc = collection.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        return None
+    if not doc:
+        return None
+    try:
+        doc["_id"] = str(doc.get("_id"))
+    except Exception:
+        pass
+    return doc
+
+
+def get_current_active_user(current_user: Annotated[UserPublic, Depends(get_current_user)]) -> UserPublic:
     # if current_user.disabled:
     #     raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
@@ -210,7 +230,6 @@ def insert_user(user):
         "name": user["name"],
         "surname": user["surname"],
         "role": user.get("role", "operator"),
-        "isActive": True,
         "username": user["username"],
         "password": user["password"],
         "workLocation": user.get("workLocation"),
@@ -260,10 +279,9 @@ def create_user(user: UserSchema):
         "name": user.name,
         "surname": user.surname,
         "role": "operator",
-        "isActive": True,
         "username": user.username,
         "password": hashed,
-        "workLocation": user.workLocation,
+        "workLocation": user.workLocation.dict() if hasattr(user.workLocation, "dict") else user.workLocation,
         "confirmed": False,
         "created_at": now,
     }
@@ -271,10 +289,13 @@ def create_user(user: UserSchema):
     token = create_confirm_token(inserted_id)
     return send_email(user.email, token)
 
-def update_current_user(user):
+def update_current_user(current_user: UserPublic, fields: UserUpdateFields):
     collection = get_database()["users"]
-    if get_user(user.username) is not None:
-        collection.update_one({"username": user.username}, {"$set": {"email": user.email, "name": user.name, "surname": user.surname, "workLocation": user.workLocation}})
+    # Update only allowed fields: name, surname, workLocation
+    update_doc = {"name": fields.name, "surname": fields.surname}
+    if fields.workLocation is not None:
+        update_doc["workLocation"] = fields.workLocation.dict() if hasattr(fields.workLocation, "dict") else fields.workLocation
+    collection.update_one({"_id": ObjectId(current_user.id)}, {"$set": update_doc})
     return MessageModel(message="Success")
 
 def confirm_email(token: str):
@@ -305,23 +326,23 @@ def confirm_email(token: str):
     return MessageModel(message="Success")
 
 
-def update_username(current_user: dict, new_username: str):
+def update_username(current_user: UserPublic, new_username: str):
     collection = get_database()["users"]
     # ensure username not used by another account
-    existing = collection.find_one({"username": new_username, "_id": {"$ne": ObjectId(current_user["_id"])}})
+    existing = collection.find_one({"username": new_username, "_id": {"$ne": ObjectId(current_user.id)}})
     if existing:
         return MessageModel(message="Username already taken")
-    collection.update_one({"_id": ObjectId(current_user["_id"])}, {"$set": {"username": new_username}})
+    collection.update_one({"_id": ObjectId(current_user.id)}, {"$set": {"username": new_username}})
     return MessageModel(message="Username updated")
 
 
-def update_email(current_user: dict, new_email: str):
+def update_email(current_user: UserPublic, new_email: str):
     collection = get_database()["users"]
     # ensure email not used by another account
-    existing = collection.find_one({"email": new_email, "_id": {"$ne": ObjectId(current_user["_id"])}})
+    existing = collection.find_one({"email": new_email, "_id": {"$ne": ObjectId(current_user.id)}})
     if existing:
         return MessageModel(message="Email already in use")
     # set new email and mark unconfirmed
-    collection.update_one({"_id": ObjectId(current_user["_id"])}, {"$set": {"email": new_email, "confirmed": False}})
-    token = create_confirm_token(current_user["_id"])
+    collection.update_one({"_id": ObjectId(current_user.id)}, {"$set": {"email": new_email, "confirmed": False}})
+    token = create_confirm_token(current_user.id)
     return send_email(new_email, token)
