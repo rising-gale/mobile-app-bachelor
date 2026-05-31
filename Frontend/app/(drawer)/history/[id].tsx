@@ -9,7 +9,7 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   AntDesign,
   FontAwesome5,
@@ -109,15 +109,6 @@ const HistoryItemPage: React.FC = () => {
       edges={["bottom", "left", "right"]}
     >
       <StatusBar barStyle="light-content" />
-
-      <Stack.Screen
-        options={{
-          headerTitle: assessment.digits || "Деталі перевірки",
-          headerStyle: { backgroundColor: "#1e2430" },
-          headerTintColor: "#9B907B",
-          headerTitleStyle: { fontWeight: "bold", fontSize: 20 },
-        }}
-      />
 
       <ScrollView
         className="flex-1 px-4 pt-4"

@@ -7,8 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { Drawer } from 'expo-router/drawer';
-import { DrawerToggleButton } from '@react-navigation/drawer';
 import { router } from 'expo-router';
 import { FontAwesome5 } from '@expo/vector-icons';
 
@@ -40,16 +38,6 @@ const HistoryPage: React.FC = () => {
   return (
     <View className="flex-1 bg-[#181c24]">
       <StatusBar barStyle="light-content" />
-      <Drawer.Screen
-        options={{
-          headerShown: true,
-          title: 'Ваша історія перевірок',
-          headerStyle: { backgroundColor: '#1e2430' },
-          headerTintColor: '#9B907B',
-          headerTitleStyle: { fontWeight: 'bold' },
-          headerLeft: () => <DrawerToggleButton tintColor="#9B907B" />,
-        }}
-      />
 
       {/* Основной контент */}
       <View className="flex-1">

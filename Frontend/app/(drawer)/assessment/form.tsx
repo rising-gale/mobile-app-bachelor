@@ -11,8 +11,6 @@ import {
   Alert,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
-import { Drawer } from "expo-router/drawer";
-import { DrawerToggleButton } from "@react-navigation/drawer";
 import { StatusBar } from "expo-status-bar";
 import { Feather, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 
@@ -174,15 +172,6 @@ const AssessmentFormPage: React.FC = () => {
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View className="flex-1 bg-[#181c24]">
         <StatusBar style="light" />
-        <Drawer.Screen
-          options={{
-            headerShown: true,
-            title: "Оформлення інспекції",
-            headerStyle: { backgroundColor: "#1e2430" },
-            headerTintColor: "#9B907B",
-            headerLeft: () => <DrawerToggleButton tintColor="#9B907B" />,
-          }}
-        />
         <ScrollView
           className="flex-1 px-4"
           contentContainerStyle={{ paddingBottom: 30 }}
@@ -324,9 +313,6 @@ const AssessmentFormPage: React.FC = () => {
             cancelAction={handleCancel}
           />
         </ScrollView>
-        {/* ========================================================= */}
-        // ПОДКЛЮЧАЕМ НАШИ МОДАЛКИ СНИЗУ СТРАНИЦЫ
-        {/* ========================================================= */}
         {/* Модалка результата проверки */}
         <DropdownModal
           visible={isResultModalVisible}

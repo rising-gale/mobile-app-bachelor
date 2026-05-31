@@ -30,11 +30,6 @@ class AssessmentSchema(BaseModel):
             }
         }
 
-
-class NumberInfoSchema(BaseModel):
-    information: dict = Field(...)
-
-
 # Output models
 class AssessmentOut(BaseModel):
     id: str = Field(...)

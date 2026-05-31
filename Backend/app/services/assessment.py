@@ -7,6 +7,7 @@ import tempfile
 import traceback
 
 import pymongo
+import requests
 from fastapi import HTTPException
 
 from .user import get_user_by_id
@@ -41,6 +42,73 @@ def get_nomeroff_pipeline():
             raise HTTPException(status_code=500, detail=f"Failed to initialize nomeroff pipeline: {e}")
     return _nomeroff_pipeline, _nomeroff_unzip
 
+def fetch_and_save_external_number(digits: str) -> dict:
+    """
+    Вспомогательная функция для запроса данных из внешнего API
+    и их автоматического кэширования в нашу MongoDB.
+    """
+    # Токен можно вынести в переменные окружения (.env), оставив ваш ключ как дефолтный
+    api_key = os.environ.get('BAZA_GAI_API_KEY', 'REDACTED_BAZA_GAI_API_KEY')
+    url = f"https://baza-gai.com.ua/nomer/{digits}"
+    headers = {
+        "Accept": "application/json",
+        "X-Api-Key": api_key
+    }
+
+    try:
+        logger.info("Fetching data from external API for plate: %s", digits)
+        # Ставим таймаут 5 секунд, чтобы бэкенд не завис, если внешнее АПИ упадет
+        response = requests.get(url, headers=headers, timeout=60)
+        
+        if response.status_code == 200:
+            external_data = response.json()
+            
+            # Формируем документ строго под структуру нашей Pydantic-модели NumberInfoOut
+            number_document = {
+                "digits": digits,
+                "vin": external_data.get("vin"),
+                "region": external_data.get("region"),
+                "vendor": external_data.get("vendor"),
+                "model": external_data.get("model"),
+                "model_year": external_data.get("model_year"),
+                "photo_url": external_data.get("photo_url"),
+                "is_stolen": external_data.get("is_stolen", False),
+                "stolen_details": external_data.get("stolen_details"),
+                "operations": external_data.get("operations", []),
+                "comments": external_data.get("comments", [])
+            }
+            
+            # Сохраняем в локальную БД для кэша
+            collection = get_database()["numberplates"]
+            collection.insert_one(number_document)
+            
+            # MongoDB добавляет поле _id при вставке, удаляем его перед возвратом на фронт
+            number_document.pop("_id", None)
+            logger.info("Successfully cached external data for plate: %s", digits)
+            return number_document
+            
+        else:
+            logger.warning("External API returned status %s for plate %s", response.status_code, digits)
+            
+    except Exception as e:
+        logger.error("Failed to process external API request for %s: %s", digits, str(e))
+    
+    # ФОЛЛБЭК: Если номера нет во внешней базе (404) или АПИ лежит,
+    # возвращаем пустой скелет с номером, чтобы интерфейс приложения не ломался.
+    return {
+        "digits": digits,
+        "vin": None,
+        "region": None,
+        "vendor": None,
+        "model": None,
+        "model_year": None,
+        "photo_url": None,
+        "is_stolen": False,
+        "stolen_details": None,
+        "operations": [],
+        "comments": []
+    }
+
 #Only info by number
 def getNumber(digits: str):
     collection = get_database()["numberplates"]
@@ -48,12 +116,14 @@ def getNumber(digits: str):
         {"digits": digits},
         {"_id": 0, "digits": 1, "vin": 1, "region": 1, "vendor": 1, "model": 1, "model_year": 1, "photo_url": 1, "is_stolen": 1, "stolen_details": 1, "operations": 1, "comments": 1},
     )
-    logger.debug("getNumber(%s) -> %s", digits, bool(number_info))
+    # Сценарий 1: Номер уже есть в нашей БД
     if number_info is not None:
-        # return as plain dict matching NumberInfoOut
+        logger.debug("getNumber(%s) -> Found in local DB", digits)
         return number_info
-    # not found -> return None to allow caller/router to set message
-    return None
+        
+    # Сценарий 2: Номера в нашей БД нет -> Идем во внешнее АПИ, сохраняем и отдаем
+    logger.debug("getNumber(%s) -> Not found locally. Triggering external fetch.", digits)
+    return fetch_and_save_external_number(digits)
 
 #Number info with history
 def getNumberInfo(digits):

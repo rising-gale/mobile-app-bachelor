@@ -16,8 +16,9 @@ import * as SecureStore from 'expo-secure-store';
 import { AntDesign, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 
 // Импортируем твои RTK Query эндпоинты и типы
-import { useGetMeQuery, useUpdateUserMutation, useGetLocationsQuery, CityChoice } from 'src/redux/api';
+import { useGetMeQuery, useUpdateUserMutation, useGetLocationsQuery } from 'src/redux/api';
 import DropdownModal from 'src/components/DropDownModal';
+import { CityChoice } from 'src/types/api';
 
 // Разрешаем null для начального состояния формы
 interface ProfileFormState {

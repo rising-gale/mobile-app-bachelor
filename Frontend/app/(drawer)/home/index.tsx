@@ -7,8 +7,6 @@ import {
   useWindowDimensions,
   StatusBar,
 } from 'react-native';
-import { Drawer } from 'expo-router/drawer';
-import { DrawerToggleButton } from '@react-navigation/drawer';
 import { AntDesign } from '@expo/vector-icons';
 import NativeCarousel from 'src/components/NativeCarousel';
 
@@ -86,16 +84,6 @@ const HomePage: React.FC = () => {
   return (
     <View className="flex-1 bg-[#181c24]">
       <StatusBar barStyle="light-content" />
-      <Drawer.Screen 
-        options={{ 
-          headerShown: true, 
-          title: 'Доброго дня!', 
-          headerStyle: { backgroundColor: '#1e2430' },
-          headerTintColor: '#9B907B',
-          headerTitleStyle: { fontWeight: 'bold' },
-          headerLeft: () => <DrawerToggleButton tintColor='#9B907B' /> 
-        }} 
-      />
       
       <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
         
