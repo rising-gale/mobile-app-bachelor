@@ -1,7 +1,22 @@
+// module.exports = function (api) {
+//   api.cache(true);
+//   return {
+//     presets: ['babel-preset-expo'],
+//     plugins: ['expo-router/babel', 'react-native-reanimated/plugin'],
+//   };
+// };
+
+
 module.exports = function (api) {
   api.cache(true);
   return {
-    presets: ['babel-preset-expo'],
-    plugins: ['expo-router/babel', 'react-native-reanimated/plugin'],
+    // ЖЕСТКО контролируем, что эти две строки находятся в presets, а не в plugins!
+    presets: [
+      ["babel-preset-expo", { jsxImportSource: "nativewind" }],
+      "nativewind/babel",
+    ],
+    plugins: [
+      
+    ],
   };
 };

@@ -1,4 +1,4 @@
-const apiPath = 'http://192.168.0.107:8080';
+const apiPath = process.env.EXPO_PUBLIC_API_URL;
 
 export default {
   checkNumberPath: () => [apiPath, 'assessment', 'check_number'].join('/'),
