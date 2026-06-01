@@ -1,3 +1,7 @@
+# Top-level ignores for mobile-app-bachelor
+# Ignore backend credentials and environment
+Backend/credentials.json
+Backend/.env
 # Root .gitignore for the mobile-app-bachelor repository
 
 # Node / Expo / React Native
