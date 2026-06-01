@@ -16,9 +16,7 @@ module.exports = function (api) {
       "nativewind/babel",
     ],
     plugins: [
-      // Если у тебя используются другие плагины (например, для reanimated), 
-      // они должны быть ТУТ. Но nativewind и expo-router здесь быть НЕ должно.
-      // 'react-native-reanimated/plugin', // (опционально, если требует твоя версия reanimated)
+      
     ],
   };
 };

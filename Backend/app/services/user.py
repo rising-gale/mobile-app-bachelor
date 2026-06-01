@@ -98,7 +98,10 @@ def verify_refresh_token(token: str) -> str:
     if not doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked or unknown")
     expires_at = doc.get("expires_at")
-    if expires_at and datetime.now(timezone.utc) > expires_at:
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+    if datetime.now(timezone.utc) > expires_at:
         _delete_refresh_jti(jti)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
     return user_id

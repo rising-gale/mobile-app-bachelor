@@ -1,33 +1,140 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import * as SecureStore from "expo-secure-store";
-import { ApiResponse, AssessmentOut, AssessmentSummary, CityChoice, EmailUpdate, IdModel, MessageModel, NumberInfoSchema, NumberWithHistory, PageCountModel, RefreshTokenRequest, TokenResponse, UsernameUpdate, UserPublic, UserSchema } from "src/types/api";
+import {
+  ApiResponse,
+  AssessmentOut,
+  AssessmentSummary,
+  CityChoice,
+  EmailUpdate,
+  IdModel,
+  MessageModel,
+  NumberWithHistory,
+  PageCountModel,
+  RefreshTokenRequest,
+  TokenResponse,
+  UsernameUpdate,
+  UserPublic,
+  UserSchema,
+} from "src/types/api";
 
 // Base URL: use env var if provided, fallback to localhost
 const API_BASE_URL =
   (process.env.EXPO_PUBLIC_API_URL as string) || "http://127.0.0.1:8080/";
 
+// 1. Чистый базовый запрос (занимается только подстановкой текущего access_token)
+const baseQuery = fetchBaseQuery({
+  baseUrl: API_BASE_URL,
+  prepareHeaders: async (headers) => {
+    try {
+      const token = await SecureStore.getItemAsync("access_token");
+      if (token) {
+        headers.set(
+          "Authorization",
+          token.startsWith("Bearer ") ? token : `Bearer ${token}`,
+        );
+      }
+    } catch (e) {
+      console.error("Failed to fetch secure token", e);
+    }
+    return headers;
+  },
+});
+
+// Переменная для атомарной блокировки (Mutex).
+// Предотвращает множественные запросы на /token/refresh при ротации токенов.
+let refreshPromise: Promise<boolean> | null = null;
+
+// 2. Кастомная обертка с логикой автоматического рефреша
+const baseQueryWithReauth: typeof baseQuery = async (
+  args,
+  api,
+  extraOptions,
+) => {
+  // Выполняем исходный запрос
+  let result = await baseQuery(args, api, extraOptions);
+
+  // Если сервер вернул 401 Unauthorized — токен протух
+  if (result.error && result.error.status === 401) {
+    // Если еще никто не запустил процесс обновления токена — запускаем его
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
+        try {
+          const refreshToken = await SecureStore.getItemAsync("refresh_token");
+          if (!refreshToken) return false;
+
+          // Делаем ручной запрос на бэкенд для рефреша через наш же baseQuery.
+          // Твой бэкенд принимает JSON body: { refresh_token: "..." }
+          const refreshResult = await baseQuery(
+            {
+              url: "token/refresh",
+              method: "POST",
+              body: { refresh_token: refreshToken },
+            },
+            api,
+            extraOptions,
+          );
+
+          const tokenData = refreshResult.data as
+            | ApiResponse<TokenResponse>
+            | undefined;
+
+          // Если бэк успешно вернул структуру с новыми токенами
+          if (tokenData?.success && tokenData?.data?.access_token) {
+            // Сохраняем новый Access Токен
+            await SecureStore.setItemAsync(
+              "access_token",
+              "Bearer " + tokenData.data.access_token,
+            );
+
+            // Твой бэкенд ротирует рефреш токен (метод rotate_refresh_token),
+            // поэтому обязательно перезаписываем его новым значением из ответа
+            if (tokenData.data.refresh_token) {
+              await SecureStore.setItemAsync(
+                "refresh_token",
+                tokenData.data.refresh_token,
+              );
+            }
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.error("Token refresh critical error:", error);
+          return false;
+        } finally {
+          // После завершения (успешного или нет) обязательно очищаем промис,
+          // чтобы при следующих истечениях access токена цикл мог повториться
+          refreshPromise = null;
+        }
+      })();
+    }
+
+    // Все параллельные запросы, зашедшие в эту ветку, будут смиренно ждать разрешения этого Promise
+    const isSuccess = await refreshPromise;
+
+    if (isSuccess) {
+      // Если рефреш прошел успешно, повторно выполняем исходный запрос.
+      // Метод baseQuery внутри себя снова вызовет prepareHeaders,
+      // который прочитает из SecureStore уже СВЕЖИЙ access_token.
+      result = await baseQuery(args, api, extraOptions);
+    } else {
+      // Если обновить токен не удалось (рефреш просрочен, удален из БД или отозван)
+      // Полностью зачищаем хранилище токенов
+      await SecureStore.deleteItemAsync("access_token");
+      await SecureStore.deleteItemAsync("refresh_token");
+
+      // СЮДА МОЖНО ДОБАВИТЬ ОЧИСТКУ СТЕЙТА АВТОРИЗАЦИИ:
+      // Например, если у тебя есть authSlice:
+      // api.dispatch(logout());
+    }
+  }
+
+  return result;
+};
+
 export const mobileApi = createApi({
   reducerPath: "mobileApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: API_BASE_URL,
-    prepareHeaders: async (headers) => {
-      try {
-        const token = await SecureStore.getItemAsync("access_token");
-        // console.log('Token in prepare headers: ', token)
-        if (token) {
-          // Убедись, что токен уже сохранен с префиксом "Bearer " или добавь его здесь
-          headers.set(
-            "Authorization",
-            token.startsWith("Bearer ") ? token : `Bearer ${token}`,
-          );
-        }
-      } catch (e) {
-        console.error("Failed to fetch secure token", e);
-      }
-      return headers;
-    },
-  }),
-  tagTypes: ["Assessment", "Auth", "User", "Number"],
+  baseQuery: baseQueryWithReauth,
+  tagTypes: ["Assessment", "User"],
   endpoints: (build) => ({
     // Assessment endpoints
     checkNumber: build.mutation<ApiResponse<NumberWithHistory>, FormData>({
@@ -38,23 +145,11 @@ export const mobileApi = createApi({
       }),
     }),
 
-    // saveNumberInfo: build.mutation<ApiResponse<IdModel>, NumberInfoSchema>({
-    //   query: (body) => ({
-    //     url: "assessment/save_number_info",
-    //     method: "POST",
-    //     body,
-    //   }),
-    //   invalidatesTags: ["Number"],
-    // }),
-
-    submitAssessment: build.mutation<
-      ApiResponse<IdModel>,
-      FormData
-    >({
-      query: (formData) => ({ 
-        url: "assessment/submit", 
-        method: "POST", 
-        body: formData 
+    submitAssessment: build.mutation<ApiResponse<IdModel>, FormData>({
+      query: (formData) => ({
+        url: "assessment/submit",
+        method: "POST",
+        body: formData,
       }),
       invalidatesTags: ["Assessment"],
     }),
@@ -122,19 +217,19 @@ export const mobileApi = createApi({
             ? body
             : `grant_type=password&username=${encodeURIComponent(body.username)}&password=${encodeURIComponent(body.password)}`,
       }),
-      invalidatesTags: ["Auth", "User"],
+      invalidatesTags: ["User"],
     }),
     refreshToken: build.mutation<
       ApiResponse<TokenResponse>,
       RefreshTokenRequest
     >({
       query: (body) => ({ url: "token/refresh", method: "POST", body }),
-      invalidatesTags: ["Auth"],
+      // invalidatesTags: ["Auth"],
     }),
     revokeToken: build.mutation<ApiResponse<MessageModel>, RefreshTokenRequest>(
       {
         query: (body) => ({ url: "token/revoke", method: "POST", body }),
-        invalidatesTags: ["Auth"],
+        // invalidatesTags: ["Auth"],
       },
     ),
 

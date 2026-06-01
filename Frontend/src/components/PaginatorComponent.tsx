@@ -19,7 +19,7 @@ const PaginatorComponent: React.FC<PaginatorComponentProps> = ({
   const isLastPage = curPage >= pageCount;
 
   return (
-    <View className="flex-row justify-between items-center py-3 px-6 border-t border-slate-800/80 bg-[#181c24]">
+    <View className="flex-row justify-between items-center p-6 border-t border-slate-800/80 bg-[#181c24]">
       {/* Кнопка НАЗАД */}
       <TouchableOpacity
         onPress={prevPage}

@@ -48,7 +48,9 @@ def fetch_and_save_external_number(digits: str) -> dict:
     и их автоматического кэширования в нашу MongoDB.
     """
     # Токен можно вынести в переменные окружения (.env), оставив ваш ключ как дефолтный
-    api_key = os.environ.get('BAZA_GAI_API_KEY', 'REDACTED_BAZA_GAI_API_KEY')
+    api_key = os.environ.get('BAZA_GAI_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="BAZA_GAI_API_KEY environment variable is not set. Please add it to your .env file.")
     url = f"https://baza-gai.com.ua/nomer/{digits}"
     headers = {
         "Accept": "application/json",

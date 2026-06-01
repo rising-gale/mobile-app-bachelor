@@ -4,6 +4,9 @@
 models/*
 !models/.gitkeep
 
+# Credentials and sensitive files
+credentials.json
+
 # Byte-compiled / cache
 __pycache__/
 *.py[cod]

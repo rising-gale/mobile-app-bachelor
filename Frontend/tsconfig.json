@@ -3,17 +3,19 @@
     "target": "ESNext",
     "module": "ESNext",
     "jsx": "react-native",
-    "allowJs": true,
+    "allowJs": false,
     "checkJs": false,
     "noEmit": true,
     "isolatedModules": true,
     "strict": false,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": "."
+    "paths": {
+      "src/*": ["./src/*"]
+    }
   },
   "include": [
     "**/*.ts",
